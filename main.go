@@ -1,10 +1,14 @@
 package main
 
 import (
+	"bytes"
+	"crypto/tls"
 	"fmt"
 	"log"
 	"os"
 
+	"github.com/go-sql-driver/mysql"
+	"github.com/prometheus/common/expfmt"
 	"github.com/sensu-community/sensu-plugin-sdk/sensu"
 	"github.com/sensu/sensu-go/types"
 )
@@ -12,11 +16,13 @@ import (
 // Config represents the check plugin config.
 type Config struct {
 	sensu.PluginConfig
-	Example string
+	CustomTLS
+	Servers         []string
+	CustomTLSConfig *tls.Config
 }
 
 var (
-	plugin = Config{
+	cfg = Config{
 		PluginConfig: sensu.PluginConfig{
 			Name:     "mysql-check",
 			Short:    "Check for producing observability metrics from mysql databases",
@@ -25,14 +31,37 @@ var (
 	}
 
 	options = []*sensu.PluginConfigOption{
-		&sensu.PluginConfigOption{
-			Path:      "example",
-			Env:       "CHECK_EXAMPLE",
-			Argument:  "example",
-			Shorthand: "e",
-			Default:   "",
-			Usage:     "An example string configuration option",
-			Value:     &plugin.Example,
+		{
+			Path:      "servers",
+			Argument:  "servers",
+			Shorthand: "s",
+			Env:       "SERVERS",
+			Usage:     "A list of one or more server connection URLs in DNS Format",
+			Value:     &cfg.Servers,
+		}, {
+			Path:     "tls-ca",
+			Argument: "tls-ca",
+			Env:      "TLS_CA",
+			Usage:    "Path to a ca.pem file for custom TLS config",
+			Value:    &cfg.TLSCA,
+		}, {
+			Path:     "tls-cert",
+			Argument: "tls-cert",
+			Env:      "TLS_CERT",
+			Usage:    "Path to a cert.pem file for custom TLS config",
+			Value:    &cfg.TLSCert,
+		}, {
+			Path:     "tls-key",
+			Argument: "tls-key",
+			Env:      "TLS_KEY",
+			Usage:    "Path to a key.pem file for custom TLS config",
+			Value:    &cfg.TLSKey,
+		}, {
+			Path:     "insecure-skip-verify",
+			Argument: "insecure-skip-verify",
+			Env:      "INSECURE_SKIP_VERIFY",
+			Usage:    "If true, use TLS but skip chain & host verification for custom TLS config",
+			Value:    &cfg.InsecureSkipVerify,
 		},
 	}
 )
@@ -50,18 +79,42 @@ func main() {
 		useStdin = true
 	}
 
-	check := sensu.NewGoCheck(&plugin.PluginConfig, options, checkArgs, executeCheck, useStdin)
+	check := sensu.NewGoCheck(&cfg.PluginConfig, options, checkArgs, executeCheck, useStdin)
 	check.Execute()
 }
 
 func checkArgs(event *types.Event) (int, error) {
-	if len(plugin.Example) == 0 {
-		return sensu.CheckStateWarning, fmt.Errorf("--example or CHECK_EXAMPLE environment variable is required")
+	if len(cfg.Servers) == 0 {
+		return sensu.CheckStateCritical, fmt.Errorf("expected at least one server")
 	}
+	custom, err := cfg.TLSConfig()
+	if err != nil {
+		return sensu.CheckStateCritical, fmt.Errorf("invalid TLS Config: %v", err)
+	}
+	cfg.CustomTLSConfig = custom
 	return sensu.CheckStateOK, nil
 }
 
 func executeCheck(event *types.Event) (int, error) {
-	log.Println("executing check with --example", plugin.Example)
+	if cfg.CustomTLSConfig != nil {
+		_ = mysql.RegisterTLSConfig("custom", cfg.CustomTLSConfig)
+	}
+
+	metricFamilies, err := GatherMetrics(cfg.Servers)
+	if err != nil {
+		fmt.Println(err.Error())
+		return sensu.CheckStateCritical, nil
+	}
+
+	var buf bytes.Buffer
+	enc := expfmt.NewEncoder(&buf, expfmt.FmtText)
+	for _, family := range metricFamilies {
+		if err := enc.Encode(family); err != nil {
+			fmt.Printf("failed to encode metrics to prometheus exposition format: %v\n", err)
+			return sensu.CheckStateCritical, nil
+		}
+	}
+	fmt.Print(buf.String())
+
 	return sensu.CheckStateOK, nil
 }
