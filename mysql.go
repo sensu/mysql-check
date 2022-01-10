@@ -112,7 +112,7 @@ func GatherMetrics(servers []string) ([]*dto.MetricFamily, error) {
 }
 
 // Producer - documentation only type until sources other than mysql server status are implemented
-type Producer func(*sql.DB) (MetricFamilyMap, error)
+// type Producer func(*sql.DB) (MetricFamilyMap, error)
 
 func fromServerStatusVars(db *sql.DB) (MetricFamilyMap, error) {
 	rows, err := db.Query("SHOW GLOBAL STATUS;")
