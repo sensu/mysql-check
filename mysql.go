@@ -68,7 +68,7 @@ func getFamilyDefinitions() map[string]*dto.MetricFamily {
 
 func GatherMetrics(servers []string) ([]*dto.MetricFamily, error) {
 	metrics := make([]MetricFamilyMap, 0)
-	for _, server := range cfg.Servers {
+	for _, server := range servers {
 		serverCfg, err := mysql.ParseDSN(server)
 		if err != nil {
 			return nil, fmt.Errorf("error parsing server dsn: %v", err)
