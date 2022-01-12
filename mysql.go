@@ -18,48 +18,48 @@ func getFamilyDefinitions() map[string]*dto.MetricFamily {
 	sp := func(s string) *string { return &s }
 
 	return map[string]*dto.MetricFamily{
-		"uptime": {
-			Name: sp("uptime"),
+		"mysql_uptime": {
+			Name: sp("mysql_uptime"),
 			Help: sp("The number of seconds that the server has been up"),
 			Type: dto.MetricType_COUNTER.Enum(),
 		},
-		"connection_errors_internal": {
-			Name: sp("connection_errors_internal"),
+		"mysql_connection_errors_internal": {
+			Name: sp("mysql_connection_errors_internal"),
 			Help: sp("The number of connections refused due to internal errors in the server, such as failure to start a new thread or an out-of-memory condition."),
 			Type: dto.MetricType_COUNTER.Enum(),
 		},
-		"connection_errors_max_connections": {
-			Name: sp("connection_errors_max_connections"),
+		"mysql_connection_errors_max_connections": {
+			Name: sp("mysql_connection_errors_max_connections"),
 			Help: sp("The number of connections refused because the server max_connections limit was reached."),
 			Type: dto.MetricType_COUNTER.Enum(),
 		},
-		"slow_queries": {
-			Name: sp("slow_queries"),
+		"mysql_slow_queries": {
+			Name: sp("mysql_slow_queries"),
 			Help: sp("The number of queries that have taken more than long_query_time seconds. "),
 			Type: dto.MetricType_COUNTER.Enum(),
 		},
-		"queries": {
-			Name: sp("queries"),
+		"mysql_queries": {
+			Name: sp("mysql_queries"),
 			Help: sp("The number of statements executed by the server."),
 			Type: dto.MetricType_COUNTER.Enum(),
 		},
-		"innodb_data_fsyncs": {
-			Name: sp("innodb_data_fsyncs"),
+		"mysql_innodb_data_fsyncs": {
+			Name: sp("mysql_innodb_data_fsyncs"),
 			Help: sp("The number of fsync() operations so far."),
 			Type: dto.MetricType_COUNTER.Enum(),
 		},
-		"innodb_row_lock_waits": {
-			Name: sp("innodb_row_lock_waits"),
+		"mysql_innodb_row_lock_waits": {
+			Name: sp("mysql_innodb_row_lock_waits"),
 			Help: sp("The number of times operations on InnoDB tables had to wait for a row lock."),
 			Type: dto.MetricType_COUNTER.Enum(),
 		},
-		"innodb_row_lock_current_waits": {
-			Name: sp("innodb_row_lock_current_waits"),
+		"mysql_innodb_row_lock_current_waits": {
+			Name: sp("mysql_innodb_row_lock_current_waits"),
 			Help: sp("The number of row locks currently being waited for by operations on InnoDB tables."),
 			Type: dto.MetricType_GAUGE.Enum(),
 		},
-		"table_locks_waited": {
-			Name: sp("table_locks_waited"),
+		"mysql_table_locks_waited": {
+			Name: sp("mysql_table_locks_waited"),
 			Help: sp("The number of times that a request for a table lock could not be granted immediately and a wait was needed."),
 			Type: dto.MetricType_COUNTER.Enum(),
 		},
@@ -83,7 +83,7 @@ func GatherMetrics(servers []string) ([]*dto.MetricFamily, error) {
 			fmt.Printf("error opening connection: %v\n", err)
 			return nil, fmt.Errorf("error opening connection: %v", err)
 		}
-		results, err := fromServerStatusVars(db)
+		results, err := gatherFromServerStatusVars(db)
 		if err != nil {
 			fmt.Printf("error collecting metrics for server: %s db:%s: %v\n", serverCfg.Addr, serverCfg.DBName, err)
 			return nil, fmt.Errorf("error collecting metrics for server: %s db:%s: %v", serverCfg.Addr, serverCfg.DBName, err)
@@ -114,7 +114,8 @@ func GatherMetrics(servers []string) ([]*dto.MetricFamily, error) {
 // Producer - documentation only type until sources other than mysql server status are implemented
 // type Producer func(*sql.DB) (MetricFamilyMap, error)
 
-func fromServerStatusVars(db *sql.DB) (MetricFamilyMap, error) {
+func gatherFromServerStatusVars(db *sql.DB) (MetricFamilyMap, error) {
+	prefix := "mysql"
 	rows, err := db.Query("SHOW GLOBAL STATUS;")
 	if err != nil {
 		return nil, fmt.Errorf("error getting server status: %v", err)
@@ -148,14 +149,16 @@ func fromServerStatusVars(db *sql.DB) (MetricFamilyMap, error) {
 				return nil, fmt.Errorf("could not read server status value as integer %s: %s", key, string(val))
 			}
 			fVal := float64(i)
-			metrics[rowKey] = []*dto.Metric{{Counter: &dto.Counter{Value: &fVal}}}
+			metricFamilyName := fmt.Sprintf("%s_%s", prefix, rowKey)
+			metrics[metricFamilyName] = []*dto.Metric{{Counter: &dto.Counter{Value: &fVal}}}
 		case "innodb_row_lock_current_waits":
 			i, err := strconv.ParseInt(string(val), 10, 64)
 			if err != nil {
 				return nil, fmt.Errorf("could not read server status value as integer %s: %s", key, string(val))
 			}
+			metricFamilyName := fmt.Sprintf("%s_%s", prefix, rowKey)
 			fVal := float64(i)
-			metrics[rowKey] = []*dto.Metric{{Gauge: &dto.Gauge{Value: &fVal}}}
+			metrics[metricFamilyName] = []*dto.Metric{{Gauge: &dto.Gauge{Value: &fVal}}}
 		default:
 			// ignore
 		}
